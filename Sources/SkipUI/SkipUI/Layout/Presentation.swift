@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -133,10 +134,8 @@ private let AlertDialogMaxWidth: Dp = 560.dp
             var systemBarEdges: Edge.Set = isFullScreen ? .all : [.top, .bottom]
 
             let detentPreferences = rememberSaveable(stateSaver: context.stateSaver as! Saver<Preference<PresentationDetentPreferences>, Any>) { mutableStateOf(Preference<PresentationDetentPreferences>(key: PresentationDetentPreferenceKey.self)) }
-            let detentPreferencesCollector = PreferenceCollector<PresentationDetentPreferences>(key: PresentationDetentPreferences.self, state: detentPreferences)
             let reducedDetentPreferences = detentPreferences.value.reduced
             let dragIndicatorPreferences = rememberSaveable(stateSaver: context.stateSaver as! Saver<Preference<PresentationDragIndicatorPreferences>, Any>) { mutableStateOf(Preference<PresentationDragIndicatorPreferences>(key: PresentationDragIndicatorPreferenceKey.self)) }
-            let dragIndicatorPreferencesCollector = PreferenceCollector<PresentationDragIndicatorPreferences>(key: PresentationDragIndicatorPreferences.self, state: dragIndicatorPreferences)
             let reducedDragIndicatorVisibility = dragIndicatorPreferences.value.reduced.visibility
 
             if !isFullScreen && verticalSizeClass != .compact {
@@ -191,31 +190,10 @@ private let AlertDialogMaxWidth: Dp = 560.dp
             let clipShape = RoundedCornerShape(topStart: isFullScreen ? 0.dp : overlayPresentationCornerRadius.dp, topEnd: isFullScreen ? 0.dp : overlayPresentationCornerRadius.dp)
             let contentModifier = Modifier.weight(Float(1.0)).clip(clipShape)
             Box(modifier: interactiveDismissDisabled ? contentModifier.nestedScroll(DisableScrollToDismissConnection()) : contentModifier) {
-                // Place outside of PresentationRoot recomposes
-                let stateSaver = remember { ComposeStateSaver() }
-                let presentationContext = context.content(stateSaver: stateSaver)
-                // Report positions inside the sheet at its settled place while it slides or is dragged, so the
-                // position-keyed state below does not recompose the content on every frame of the motion
-                let presentationTranslation = remember(sheetState) { PresentationTranslation(currentPx: { sheetTranslationPx(sheetState) }) }
-                // SKIP INSERT: val providedPresentationTranslation = LocalPresentationTranslation provides presentationTranslation
-                CompositionLocalProvider(providedPresentationTranslation) {
-                    // Place inside of ModalBottomSheet, which renders content async
-                    PresentationRoot(context: presentationContext, absoluteSystemBarEdges: systemBarEdges) { context in
-                        EnvironmentValues.shared.setValues {
-                            if !isFullScreen {
-                                $0.set_sheetDepth(sheetDepth + 1)
-                            }
-                            $0.setdismiss(DismissAction(action: { isPresented.set(false) }))
-                            return ComposeResult.ok
-                        } in: {
-                            PreferenceValues.shared.collectPreferences([interactiveDismissDisabledCollector, detentPreferencesCollector, dragIndicatorPreferencesCollector]) {
-                                for renderable in contentRenderables {
-                                    renderable.Render(context: context)
-                                }
-                            }
-                        }
-                    }
-                }
+                // ModalBottomSheetContent reads the sheet's offset while composing, so it recomposes and re-invokes
+                // this content lambda on every frame of the slide and of a drag. The presentation root lives in its
+                // own function whose arguments are the same on each of those passes, so Compose skips it
+                SheetPresentationRoot(sheetState: sheetState, isPresented: isPresented, isFullScreen: isFullScreen, sheetDepth: sheetDepth, systemBarEdgesRawValue: systemBarEdges.rawValue, context: context, contentRenderables: contentRenderables, interactiveDismissDisabledCollector: interactiveDismissDisabledCollector, detentPreferences: detentPreferences, dragIndicatorPreferences: dragIndicatorPreferences)
             }
             if !isEdgeToEdge {
                 // Move the presentation root content area above the bottom bar
@@ -238,6 +216,42 @@ private let AlertDialogMaxWidth: Dp = 560.dp
             if wasPresented.value {
                 wasPresented.value = false
                 onDismissState.value?()
+            }
+        }
+    }
+}
+
+/// The presentation root of a sheet and its content.
+///
+/// Every argument is either captured once by the sheet's content lambda or remembered, so when Material3
+/// re-invokes that lambda during the slide, the arguments are unchanged and this function is skipped.
+// SKIP INSERT: @OptIn(ExperimentalMaterial3Api::class)
+@Composable private func SheetPresentationRoot(sheetState: SheetState, isPresented: Binding<Bool>, isFullScreen: Bool, sheetDepth: Int, systemBarEdgesRawValue: Int, context: ComposeContext, contentRenderables: kotlin.collections.List<Renderable>, interactiveDismissDisabledCollector: PreferenceCollector<Bool>, detentPreferences: MutableState<Preference<PresentationDetentPreferences>>, dragIndicatorPreferences: MutableState<Preference<PresentationDragIndicatorPreferences>>) {
+    let detentPreferencesCollector = PreferenceCollector<PresentationDetentPreferences>(key: PresentationDetentPreferences.self, state: detentPreferences)
+    let dragIndicatorPreferencesCollector = PreferenceCollector<PresentationDragIndicatorPreferences>(key: PresentationDragIndicatorPreferences.self, state: dragIndicatorPreferences)
+    let systemBarEdges = Edge.Set(rawValue: systemBarEdgesRawValue)
+    // Place outside of PresentationRoot recomposes
+    let stateSaver = remember { ComposeStateSaver() }
+    let presentationContext = context.content(stateSaver: stateSaver)
+    // Report positions inside the sheet at its settled place while it slides or is dragged, so the
+    // position-keyed state below does not recompose the content on every frame of the motion
+    let presentationTranslation = remember(sheetState) { PresentationTranslation(currentPx: { sheetTranslationPx(sheetState) }) }
+    // SKIP INSERT: val providedPresentationTranslation = LocalPresentationTranslation provides presentationTranslation
+    CompositionLocalProvider(providedPresentationTranslation) {
+        // Place inside of ModalBottomSheet, which renders content async
+        PresentationRoot(context: presentationContext, absoluteSystemBarEdges: systemBarEdges) { context in
+            EnvironmentValues.shared.setValues {
+                if !isFullScreen {
+                    $0.set_sheetDepth(sheetDepth + 1)
+                }
+                $0.setdismiss(DismissAction(action: { isPresented.set(false) }))
+                return ComposeResult.ok
+            } in: {
+                PreferenceValues.shared.collectPreferences([interactiveDismissDisabledCollector, detentPreferencesCollector, dragIndicatorPreferencesCollector]) {
+                    for renderable in contentRenderables {
+                        renderable.Render(context: context)
+                    }
+                }
             }
         }
     }
