@@ -93,21 +93,24 @@ class ContextMenuModifier: RenderModifier {
         }
         Box(modifier: interactionModifier) {
             content.Render(context: contentContext)
-            DropdownMenu(expanded: isMenuExpanded.value, onDismissRequest: {
-                isMenuExpanded.value = false
-                coroutineScope.launch {
-                    delay(100)
-                    nestedMenu.value = nil
-                }
-            }) {
-                var placement = EnvironmentValues.shared._placement
-                EnvironmentValues.shared.setValues {
-                    placement.remove(ViewPlacement.toolbar)
-                    $0.set_placement(placement)
-                    return ComposeResult.ok
-                } in: {
-                    let renderables = nestedMenu.value?.content.Evaluate(context: contentContext, options: 0) ?? primaryMenuItems
-                    Menu.RenderDropdownMenuItems(for: renderables, context: contentContext, replaceMenu: replaceMenu)
+            // Its own window: positions in it must not get an enclosing sheet's translation
+            WithoutPresentationTranslation {
+                DropdownMenu(expanded: isMenuExpanded.value, onDismissRequest: {
+                    isMenuExpanded.value = false
+                    coroutineScope.launch {
+                        delay(100)
+                        nestedMenu.value = nil
+                    }
+                }) {
+                    var placement = EnvironmentValues.shared._placement
+                    EnvironmentValues.shared.setValues {
+                        placement.remove(ViewPlacement.toolbar)
+                        $0.set_placement(placement)
+                        return ComposeResult.ok
+                    } in: {
+                        let renderables = nestedMenu.value?.content.Evaluate(context: contentContext, options: 0) ?? primaryMenuItems
+                        Menu.RenderDropdownMenuItems(for: renderables, context: contentContext, replaceMenu: replaceMenu)
+                    }
                 }
             }
         }

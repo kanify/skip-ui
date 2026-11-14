@@ -278,11 +278,14 @@ public struct DatePicker : View, Renderable {
 // SKIP INSERT: @OptIn(ExperimentalMaterial3Api::class)
 @Composable func SimpleDatePickerDialog(onDismissRequest: () -> Void, content: @Composable () -> Void) {
     let horizontalPadding = EnvironmentValues.shared.horizontalSizeClass == .compact ? 16.dp : 0.dp
-    BasicAlertDialog(modifier: Modifier.wrapContentHeight(), onDismissRequest: onDismissRequest, properties: DialogProperties(usePlatformDefaultWidth: false)) {
-        Surface(modifier: Modifier.padding(horizontal: horizontalPadding), shape: DatePickerDefaults.shape) {
-            Column(verticalArrangement: Arrangement.SpaceBetween) {
-                Box(Modifier.weight(Float(1.0), fill: false)) {
-                    content()
+    // Its own window: positions in it must not get an enclosing sheet's translation
+    WithoutPresentationTranslation {
+        BasicAlertDialog(modifier: Modifier.wrapContentHeight(), onDismissRequest: onDismissRequest, properties: DialogProperties(usePlatformDefaultWidth: false)) {
+            Surface(modifier: Modifier.padding(horizontal: horizontalPadding), shape: DatePickerDefaults.shape) {
+                Column(verticalArrangement: Arrangement.SpaceBetween) {
+                    Box(Modifier.weight(Float(1.0), fill: false)) {
+                        content()
+                    }
                 }
             }
         }

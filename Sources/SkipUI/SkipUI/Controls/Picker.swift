@@ -256,14 +256,17 @@ public final class Picker<SelectionValue> : View, Renderable {
             }, label: { renderable.asView() })
             return ModifiedContent(content: button as Renderable, modifier: TagModifier(value: tagValue, role: .tag))
         }
-        DropdownMenu(expanded: isMenuExpanded?.value == true, onDismissRequest: { isMenuExpanded?.value = false }) {
-            let coroutineScope = rememberCoroutineScope()
-            Menu.RenderDropdownMenuItems(for: menuItems, selection: selection.wrappedValue, context: context, replaceMenu: { _ in
-                coroutineScope.launch {
-                    delay(200) // Allow menu item selection animation to be visible
-                    isMenuExpanded?.value = false
-                }
-            })
+        // Its own window: positions in it must not get an enclosing sheet's translation
+        WithoutPresentationTranslation {
+            DropdownMenu(expanded: isMenuExpanded?.value == true, onDismissRequest: { isMenuExpanded?.value = false }) {
+                let coroutineScope = rememberCoroutineScope()
+                Menu.RenderDropdownMenuItems(for: menuItems, selection: selection.wrappedValue, context: context, replaceMenu: { _ in
+                    coroutineScope.launch {
+                        delay(200) // Allow menu item selection animation to be visible
+                        isMenuExpanded?.value = false
+                    }
+                })
+            }
         }
     }
 

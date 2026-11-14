@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeightIn
 import androidx.compose.foundation.layout.requiredWidthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
@@ -209,6 +210,18 @@ final class PresentationTranslation {
 
 /// The translation of the enclosing sheet, or nil outside a sheet.
 let LocalPresentationTranslation: ProvidableCompositionLocal<PresentationTranslation?> = compositionLocalOf { nil as PresentationTranslation? }
+
+/// Compose content that opens its own window, such as a dialog, a popup menu or a confirmation sheet, without the
+/// enclosing sheet's translation.
+///
+/// Compose passes composition locals into dialog and popup windows. Those windows do not move with the sheet, so
+/// subtracting its offset would misplace their positions, and nothing would correct them once the sheet settles.
+@Composable func WithoutPresentationTranslation(content: @Composable () -> Void) {
+    // SKIP INSERT: val providedNoTranslation = LocalPresentationTranslation provides null
+    CompositionLocalProvider(providedNoTranslation) {
+        content()
+    }
+}
 
 /// The root bounds of the given layout at its presentation's settled position. See `LocalPresentationTranslation`.
 private func settledBoundsInRoot(of coordinates: LayoutCoordinates, translation: PresentationTranslation?) -> Rect {

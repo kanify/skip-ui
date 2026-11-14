@@ -106,14 +106,17 @@ private let AlertDialogMaxWidth: Dp = 560.dp
         // to get at the modifiers to look for `BackDismissDisabled`
         let contentRenderables = ComposeBuilder.from(content).Evaluate(context: context, options: EvaluateOptions(isKeepNonModified: true).value)
         let topInset = remember { mutableStateOf(0.dp) }
-        let topInsetPx = with(LocalDensity.current) { topInset.value.toPx() }
+        let density = LocalDensity.current
         let handleHeight = isFullScreen ? 0.dp : 8.dp
-        let handleHeightPx = with(LocalDensity.current) { handleHeight.toPx() }
+        let handleHeightPx = with(density) { handleHeight.toPx() }
         let handlePadding = isFullScreen ? 0.dp : 10.dp
-        let handlePaddingPx = with(LocalDensity.current) { handlePadding.toPx() }
+        let handlePaddingPx = with(density) { handlePadding.toPx() }
         let sheetMaxWidth = isFullScreen ? Dp.Unspecified : BottomSheetDefaults.SheetMaxWidth
+        // Read the top inset only when the outline is built, never while composing this function: the sheet content
+        // writes it on every detent change, and a read here re-evaluated the content and re-rendered all of it. The
+        // outline is built inside the layer's and background's observed reads, so a new inset still rebuilds it
         let shape = GenericShape { size, _ in
-            let y = topInsetPx - handleHeightPx - handlePaddingPx
+            let y = with(density) { topInset.value.toPx() } - handleHeightPx - handlePaddingPx
             addRect(Rect(offset = Offset(x: Float(0.0), y: y), size: Size(width: size.width, height: size.height - y)))
         }
         let interactiveDismissDisabled = isFullScreen || interactiveDismissDisabledPreference.value.reduced
@@ -331,25 +334,28 @@ final class DisableScrollToDismissConnection : NestedScrollConnection {
             $0.strip() as? Text
         }.firstOrNull()
 
-        ModalBottomSheet(onDismissRequest: { isPresented.set(false) }, sheetState: sheetState, containerColor: androidx.compose.ui.graphics.Color.Transparent, dragHandle: nil, contentWindowInsets: { WindowInsets(0.dp, 0.dp, 0.dp, 0.dp) }) {
-            // Add padding to always keep the sheet away from the top of the screen. It should tap to dismiss like the background
-            let interactionSource = remember { MutableInteractionSource() }
-            Box(modifier: Modifier.fillMaxWidth().height(128.dp).clickable(interactionSource: interactionSource, indication: nil, onClick: { isPresented.set(false) }))
+        // Its own window: positions in it must not get an enclosing sheet's translation
+        WithoutPresentationTranslation {
+            ModalBottomSheet(onDismissRequest: { isPresented.set(false) }, sheetState: sheetState, containerColor: androidx.compose.ui.graphics.Color.Transparent, dragHandle: nil, contentWindowInsets: { WindowInsets(0.dp, 0.dp, 0.dp, 0.dp) }) {
+                // Add padding to always keep the sheet away from the top of the screen. It should tap to dismiss like the background
+                let interactionSource = remember { MutableInteractionSource() }
+                Box(modifier: Modifier.fillMaxWidth().height(128.dp).clickable(interactionSource: interactionSource, indication: nil, onClick: { isPresented.set(false) }))
 
-            let stateSaver = remember { ComposeStateSaver() }
-            let scrollState = rememberScrollState()
-            let isEdgeToEdge = EnvironmentValues.shared._isEdgeToEdge == true
-            let bottomSystemBarPadding = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
-            let modifier = Modifier
-                .fillMaxWidth()
-                .padding(start: 8.dp, end: 8.dp, bottom: isEdgeToEdge ? 0.dp : bottomSystemBarPadding)
-                .clip(shape: RoundedCornerShape(topStart: overlayPresentationCornerRadius.dp, topEnd: overlayPresentationCornerRadius.dp))
-                .background(Color.overlayBackground.colorImpl())
-                .padding(bottom: isEdgeToEdge ? bottomSystemBarPadding : 0.dp)
-                .verticalScroll(scrollState)
-            let contentContext = context.content(stateSaver: stateSaver)
-            Column(modifier: modifier, horizontalAlignment: androidx.compose.ui.Alignment.CenterHorizontally) {
-                RenderConfirmationDialog(title: title, context: contentContext, isPresented: isPresented, actionRenderables: composableActions, message: messageText)
+                let stateSaver = remember { ComposeStateSaver() }
+                let scrollState = rememberScrollState()
+                let isEdgeToEdge = EnvironmentValues.shared._isEdgeToEdge == true
+                let bottomSystemBarPadding = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
+                let modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start: 8.dp, end: 8.dp, bottom: isEdgeToEdge ? 0.dp : bottomSystemBarPadding)
+                    .clip(shape: RoundedCornerShape(topStart: overlayPresentationCornerRadius.dp, topEnd: overlayPresentationCornerRadius.dp))
+                    .background(Color.overlayBackground.colorImpl())
+                    .padding(bottom: isEdgeToEdge ? bottomSystemBarPadding : 0.dp)
+                    .verticalScroll(scrollState)
+                let contentContext = context.content(stateSaver: stateSaver)
+                Column(modifier: modifier, horizontalAlignment: androidx.compose.ui.Alignment.CenterHorizontally) {
+                    RenderConfirmationDialog(title: title, context: contentContext, isPresented: isPresented, actionRenderables: composableActions, message: messageText)
+                }
             }
         }
     }
@@ -584,54 +590,57 @@ final class DisableScrollToDismissConnection : NestedScrollConnection {
             }
         }
     }
-    SkipAlertDialog(
-        onDismissRequest: { isPresented.set(false) },
-        neutralButtons: neutralButtonsList,
-        confirmButton: {
-            if let r = confirmRenderable {
-                androidx.compose.material3.TextButton(onClick: { isPresented.set(false); confirmAction?() }) {
-                    let stripped = r.strip()
-                    let button = stripped as? Button ?? (stripped as? Link)?.content
-                    let label = button?.label ?? (stripped as? NavigationLink)?.label
-                    let bt = label?.Evaluate(context: contentContext, options: 0).mapNotNull { $0.strip() as? Text }.firstOrNull()
-                    let color = button?.role == .destructive ? MaterialTheme.colorScheme.error : tint
-                    androidx.compose.material3.Text(color: color, text: bt?.localizedTextString() ?? "", style: MaterialTheme.typography.labelLarge)
+    // Its own window: positions in it must not get an enclosing sheet's translation
+    WithoutPresentationTranslation {
+        SkipAlertDialog(
+            onDismissRequest: { isPresented.set(false) },
+            neutralButtons: neutralButtonsList,
+            confirmButton: {
+                if let r = confirmRenderable {
+                    androidx.compose.material3.TextButton(onClick: { isPresented.set(false); confirmAction?() }) {
+                        let stripped = r.strip()
+                        let button = stripped as? Button ?? (stripped as? Link)?.content
+                        let label = button?.label ?? (stripped as? NavigationLink)?.label
+                        let bt = label?.Evaluate(context: contentContext, options: 0).mapNotNull { $0.strip() as? Text }.firstOrNull()
+                        let color = button?.role == .destructive ? MaterialTheme.colorScheme.error : tint
+                        androidx.compose.material3.Text(color: color, text: bt?.localizedTextString() ?? "", style: MaterialTheme.typography.labelLarge)
+                    }
+                } else {
+                    androidx.compose.material3.TextButton(onClick: { isPresented.set(false) }) {
+                        androidx.compose.material3.Text(color: tint, text: stringResource(android.R.string.ok), style: MaterialTheme.typography.labelLarge)
+                    }
                 }
-            } else {
-                androidx.compose.material3.TextButton(onClick: { isPresented.set(false) }) {
-                    androidx.compose.material3.Text(color: tint, text: stringResource(android.R.string.ok), style: MaterialTheme.typography.labelLarge)
+            },
+            dismissButton: cancelBtn != nil ? {
+                if let c = cancelBtn {
+                    androidx.compose.material3.TextButton(onClick: { isPresented.set(false); dismissAction?() }) {
+                        let stripped = c.strip()
+                        let button = stripped as? Button
+                        let label = button?.label
+                        let bt = label?.Evaluate(context: contentContext, options: 0).mapNotNull { $0.strip() as? Text }.firstOrNull()
+                        androidx.compose.material3.Text(color: tint, text: bt?.localizedTextString() ?? "", style: MaterialTheme.typography.labelLarge)
+                    }
                 }
-            }
-        },
-        dismissButton: cancelBtn != nil ? {
-            if let c = cancelBtn {
-                androidx.compose.material3.TextButton(onClick: { isPresented.set(false); dismissAction?() }) {
-                    let stripped = c.strip()
-                    let button = stripped as? Button
-                    let label = button?.label
-                    let bt = label?.Evaluate(context: contentContext, options: 0).mapNotNull { $0.strip() as? Text }.firstOrNull()
-                    androidx.compose.material3.Text(color: tint, text: bt?.localizedTextString() ?? "", style: MaterialTheme.typography.labelLarge)
+            } : nil,
+            title: title != nil ? {
+                androidx.compose.material3.Text(color: Color.primary.colorImpl(), text: title!.localizedTextString(), style: MaterialTheme.typography.headlineSmall)
+            } : (titleResource != nil ? {
+                androidx.compose.material3.Text(color: Color.primary.colorImpl(), text: stringResource(titleResource!), style: MaterialTheme.typography.headlineSmall)
+            } : nil),
+            text: messageText != nil ? {
+                androidx.compose.material3.Text(text: messageText!.localizedTextString(), style: MaterialTheme.typography.bodyMedium)
+            } : nil,
+            textFields: textFields.size > 0 ? {
+                for textField in textFields {
+                    let topPadding = textField == textFields.firstOrNull() ? 16.dp : 8.dp
+                    let textFieldContext = contentContext.content(modifier: Modifier.padding(top: topPadding))
+                    textField.Compose(context: textFieldContext)
                 }
-            }
-        } : nil,
-        title: title != nil ? {
-            androidx.compose.material3.Text(color: Color.primary.colorImpl(), text: title!.localizedTextString(), style: MaterialTheme.typography.headlineSmall)
-        } : (titleResource != nil ? {
-            androidx.compose.material3.Text(color: Color.primary.colorImpl(), text: stringResource(titleResource!), style: MaterialTheme.typography.headlineSmall)
-        } : nil),
-        text: messageText != nil ? {
-            androidx.compose.material3.Text(text: messageText!.localizedTextString(), style: MaterialTheme.typography.bodyMedium)
-        } : nil,
-        textFields: textFields.size > 0 ? {
-            for textField in textFields {
-                let topPadding = textField == textFields.firstOrNull() ? 16.dp : 8.dp
-                let textFieldContext = contentContext.content(modifier: Modifier.padding(top: topPadding))
-                textField.Compose(context: textFieldContext)
-            }
-        } : nil,
-        modifier: Modifier.wrapContentHeight().then(context.modifier),
-        containerColor: MaterialTheme.colorScheme.surfaceContainerHigh
-    )
+            } : nil,
+            modifier: Modifier.wrapContentHeight().then(context.modifier),
+            containerColor: MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    }
 }
 
 @Composable func RenderAlert(title: Text?, titleResource: Int? = nil, context: ComposeContext, isPresented: Binding<Bool>, textFields: kotlin.collections.List<TextField>, actionRenderables: kotlin.collections.List<Renderable>, message: Text?) {
