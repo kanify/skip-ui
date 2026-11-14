@@ -4,6 +4,7 @@
 #if SKIP
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntSize
 #elseif canImport(CoreGraphics)
 import struct CoreGraphics.CGFloat
 import struct CoreGraphics.CGRect
@@ -14,6 +15,8 @@ import struct CoreGraphics.CGSize
 public struct GeometryProxy {
     #if SKIP
     let globalFramePx: Rect
+    /// The view's own layout size. Unlike `globalFramePx` it is not clipped by ancestors such as a scroll view.
+    let sizePx: IntSize
     let density: Density
     let safeArea: SafeArea?
     #endif
@@ -21,7 +24,7 @@ public struct GeometryProxy {
     public var size: CGSize {
         #if SKIP
         return with(density) {
-            CGSize(width: Double(globalFramePx.width.toDp().value), height: Double(globalFramePx.height.toDp().value))
+            CGSize(width: Double(sizePx.width.toDp().value), height: Double(sizePx.height.toDp().value))
         }
         #else
         return .zero

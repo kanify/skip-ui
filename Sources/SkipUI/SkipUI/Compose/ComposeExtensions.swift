@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 
 extension Modifier {
@@ -138,15 +139,24 @@ extension Modifier {
     @Composable func onGloballyPositionedInRoot(perform: (Rect) -> Void) -> Modifier {
         let translation = LocalPresentationTranslation.current
         return self.onGloballyPositioned {
-            var bounds = $0.boundsInRoot()
-            if let translation, bounds != Rect.Zero {
-                let translationPx = translation.currentPx()
-                if translationPx != Float(0.0) {
-                    bounds = Rect(left: bounds.left, top: bounds.top - translationPx, right: bounds.right, bottom: bounds.bottom - translationPx)
-                }
-            }
+            let bounds = settledBoundsInRoot(of: $0, translation: translation)
             if bounds != Rect.Zero {
                 perform(bounds)
+            }
+        }
+    }
+
+    /// Invoke the given closure with the modified view's root bounds, exactly as `onGloballyPositionedInRoot`
+    /// reports them, and with the view's own layout size in px.
+    ///
+    /// The bounds are clipped by every clipping ancestor, such as a scroll view, but the size is not: it is the
+    /// size the view was laid out at, which is what SwiftUI's `GeometryProxy.size` reports.
+    @Composable func onGloballyPositionedInRootWithSize(perform: (Rect, IntSize) -> Void) -> Modifier {
+        let translation = LocalPresentationTranslation.current
+        return self.onGloballyPositioned {
+            let bounds = settledBoundsInRoot(of: $0, translation: translation)
+            if bounds != Rect.Zero {
+                perform(bounds, $0.size)
             }
         }
     }
@@ -199,6 +209,19 @@ final class PresentationTranslation {
 
 /// The translation of the enclosing sheet, or nil outside a sheet.
 let LocalPresentationTranslation: ProvidableCompositionLocal<PresentationTranslation?> = compositionLocalOf { nil as PresentationTranslation? }
+
+/// The root bounds of the given layout at its presentation's settled position. See `LocalPresentationTranslation`.
+private func settledBoundsInRoot(of coordinates: LayoutCoordinates, translation: PresentationTranslation?) -> Rect {
+    let bounds = coordinates.boundsInRoot()
+    guard let translation, bounds != Rect.Zero else {
+        return bounds
+    }
+    let translationPx = translation.currentPx()
+    guard translationPx != Float(0.0) else {
+        return bounds
+    }
+    return Rect(left: bounds.left, top: bounds.top - translationPx, right: bounds.right, bottom: bounds.bottom - translationPx)
+}
 
 /// The window bounds the given layout would have if its presentation were moved up by `translationPx`.
 ///

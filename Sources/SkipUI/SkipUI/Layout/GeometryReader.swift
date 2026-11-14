@@ -11,6 +11,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntSize
 #endif
 
 // SKIP @bridge
@@ -25,11 +26,13 @@ public struct GeometryReader : View, Renderable {
     #if SKIP
     @Composable override func Render(context: ComposeContext) {
         let rememberedGlobalFramePx = remember { mutableStateOf<Rect?>(nil) }
-        Box(modifier: context.modifier.fillSize().onGloballyPositionedInRoot {
-            rememberedGlobalFramePx.value = $0
+        let rememberedSizePx = remember { mutableStateOf(IntSize.Zero) }
+        Box(modifier: context.modifier.fillSize().onGloballyPositionedInRootWithSize { bounds, sizePx in
+            rememberedGlobalFramePx.value = bounds
+            rememberedSizePx.value = sizePx
         }) {
             if let globalFramePx = rememberedGlobalFramePx.value {
-                let proxy = GeometryProxy(globalFramePx: globalFramePx, density: LocalDensity.current, safeArea: EnvironmentValues.shared._safeArea)
+                let proxy = GeometryProxy(globalFramePx: globalFramePx, sizePx: rememberedSizePx.value, density: LocalDensity.current, safeArea: EnvironmentValues.shared._safeArea)
                 content(proxy).Compose(context.content())
             }
         }

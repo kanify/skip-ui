@@ -57,6 +57,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
@@ -1009,11 +1010,12 @@ extension View {
         #if SKIP
         return ModifiedContent(content: self, modifier: RenderModifier { renderable, context in
             let globalFramePx = remember { mutableStateOf<Rect?>(nil) }
+            let sizePx = remember { mutableStateOf(IntSize.Zero) }
             let previousValue = remember { mutableStateOf(nil as Any?) }
             let density = LocalDensity.current
 
             if let rect = globalFramePx.value {
-                let proxy = GeometryProxy(globalFramePx: rect, density: density, safeArea: EnvironmentValues.shared._safeArea)
+                let proxy = GeometryProxy(globalFramePx: rect, sizePx: sizePx.value, density: density, safeArea: EnvironmentValues.shared._safeArea)
                 let newValue = transform(proxy)
                 let oldValue = previousValue.value as? T
                 if oldValue == nil || oldValue != newValue {
@@ -1024,8 +1026,9 @@ extension View {
             }
 
             var updatedContext = context
-            updatedContext.modifier = context.modifier.onGloballyPositionedInRoot { rect in
+            updatedContext.modifier = context.modifier.onGloballyPositionedInRootWithSize { rect, size in
                 globalFramePx.value = rect
+                sizePx.value = size
             }
             renderable.Render(context: updatedContext)
         })
