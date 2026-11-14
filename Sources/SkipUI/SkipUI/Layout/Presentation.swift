@@ -59,6 +59,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -153,7 +154,20 @@ private let AlertDialogMaxWidth: Dp = 560.dp
                 case .medium:
                     inset = screenHeight / 2
                 case let .height(h):
-                    inset = screenHeight - h.dp
+                    // A height detent is h of content above the system navigation bar. In edge-to-edge mode the content
+                    // box runs to the bottom of the window and the presentation root pads the navigation bar inside it,
+                    // so raise the sheet by the bar's height, but never above the large position. The bar height ignores
+                    // the keyboard, so the sheet keeps its height while the keyboard shows. Where screenHeightDp already
+                    // excludes the system bars (before targetSdk 35 on Android 15), the sheet is already that much taller
+                    let heightInset = screenHeight - h.dp
+                    let isScreenHeightIncludingSystemBars = android.os.Build.VERSION.SDK_INT >= 35 && LocalContext.current.applicationInfo.targetSdkVersion >= 35
+                    if isEdgeToEdge && isScreenHeightIncludingSystemBars {
+                        let bottomBarHeight = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
+                        let largeInset = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + (24 * sheetDepth).dp + 44.dp
+                        inset = max(min(heightInset, largeInset), heightInset - bottomBarHeight)
+                    } else {
+                        inset = heightInset
+                    }
                 case let .fraction(f):
                     inset = screenHeight * Float(1 - f)
                 default:
