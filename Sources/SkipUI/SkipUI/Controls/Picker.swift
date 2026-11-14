@@ -244,6 +244,17 @@ public final class Picker<SelectionValue> : View, Renderable {
         }
     }
 
+    /// Render this picker's options inline in an enclosing `Menu`, as SwiftUI does for a picker in a menu. Each option
+    /// is a selectable item, marked when selected as in the picker's own menu, and choosing one sets the selection and
+    /// closes the menu. Sections in the picker's content keep their header and divider.
+    @Composable func RenderInlineMenuItems(context: ComposeContext, isEnabled: Bool, replaceMenu: (Menu?) -> Void) {
+        let renderables = content.Evaluate(context: context, options: 0)
+        Menu.RenderDropdownMenuItems(for: renderables, selection: selection.wrappedValue, isEnabled: isEnabled, onSelectTag: { tagValue in
+            selection.wrappedValue = tagValue as! SelectionValue
+            noteSelectionChanged()
+        }, context: context, replaceMenu: replaceMenu)
+    }
+
     @Composable private func RenderPickerSelectionMenu(taggedRenderables: kotlin.collections.List<Renderable>?, context: ComposeContext) {
         // Create selectable views from the *content* of each tag view, preserving the enclosing tag
         let renderables = taggedRenderables ?? processPickerContent(content: content, selection: selection, context: context, requireTaggedRenderables: true).1 ?? listOf()

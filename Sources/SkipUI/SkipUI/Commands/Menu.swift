@@ -157,8 +157,16 @@ public final class Menu : View, Renderable {
         return toggleMenu
     }
 
-    @Composable static func RenderDropdownMenuItems(for renderables: kotlin.collections.List<Renderable>, selection: Hashable? = nil, context: ComposeContext, replaceMenu: (Menu?) -> Void) {
+    /// - Parameter isEnabled: Whether selectable items can be chosen. Disabled items are shown dimmed.
+    /// - Parameter onSelectTag: When set, the items are a `Picker`'s options: an item that carries a tag but is not a
+    ///     `Button` is a selectable option, marked when its tag equals `selection`, and choosing it passes its tag here.
+    @Composable static func RenderDropdownMenuItems(for renderables: kotlin.collections.List<Renderable>, selection: Hashable? = nil, isEnabled: Bool = true, onSelectTag: ((Any?) -> Void)? = nil, context: ComposeContext, replaceMenu: (Menu?) -> Void) {
+        var index = 0
+        var previousEndsWithDivider = false
         for renderable in renderables {
+            let isLast = index == renderables.size - 1
+            index += 1
+            var endsWithDivider = false
             var stripped = renderable.strip()
             if let shareLink = stripped as? ShareLink {
                 shareLink.ComposeAction()
@@ -172,7 +180,16 @@ public final class Menu : View, Renderable {
             // resulting Compose `DropdownMenuItem` carries the same test tag
             // and content description a regular Button would.
             let itemModifier = accessibilityModifier(for: renderable, context: context)
-            if let button = stripped as? Button {
+            if let onSelectTag, let tagModifier = TagModifier.on(content: renderable, role: .tag) {
+                // A picker option, rendered as the picker's own menu renders it: the option view is the item's label, so
+                // its own modifiers (including accessibility ones) render with it
+                let tagValue = tagModifier.value
+                let tintColor = Color(colorImpl: { MaterialTheme.colorScheme.onSurface })
+                RenderDropdownMenuItem(for: ComposeBuilder.from { renderable.asView() }, context: context, tintColor: tintColor, isSelected: tagValue == selection, isEnabled: isEnabled) {
+                    onSelectTag(tagValue)
+                    replaceMenu(nil)
+                }
+            } else if let button = stripped as? Button {
                 let isSelected: Bool?
                 if let tagModifier = TagModifier.on(content: renderable, role: .tag) {
                     isSelected = tagModifier.value == selection
@@ -180,7 +197,7 @@ public final class Menu : View, Renderable {
                     isSelected = nil
                 }
                 let tintColor = Color(colorImpl: { button.role == .destructive ? MaterialTheme.colorScheme.error : MaterialTheme.colorScheme.onSurface })
-                RenderDropdownMenuItem(for: button.label, context: context, modifier: itemModifier, tintColor: tintColor, isSelected: isSelected) {
+                RenderDropdownMenuItem(for: button.label, context: context, modifier: itemModifier, tintColor: tintColor, isSelected: isSelected, isEnabled: isEnabled) {
                     button.action()
                     replaceMenu(nil)
                 }
@@ -191,19 +208,40 @@ public final class Menu : View, Renderable {
                     DropdownMenuItem(text: { header.Compose(context: context) }, onClick: {}, modifier: itemModifier, enabled: false)
                 }
                 let sectionRenderables = section.content.Evaluate(context: context, options: 0)
-                RenderDropdownMenuItems(for: sectionRenderables, context: context, replaceMenu: replaceMenu)
+                RenderDropdownMenuItems(for: sectionRenderables, selection: selection, isEnabled: isEnabled, onSelectTag: onSelectTag, context: context, replaceMenu: replaceMenu)
                 Divider().Compose(context: context)
+                endsWithDivider = true
             } else if let menu = stripped as? Menu {
                 if let button = menu.label.Evaluate(context: context, options: 0).firstOrNull()?.strip() as? Button {
                     RenderDropdownMenuItem(for: button.label, context: context, modifier: itemModifier) {
                         replaceMenu(menu)
                     }
                 }
+            } else if let picker = stripped as? Picker<Any>, Self.isInlineMenuPicker(renderable) {
+                // As in SwiftUI, a picker in a menu shows its options inline, set apart from the other items
+                if index > 1 && !previousEndsWithDivider {
+                    Divider().Compose(context: context)
+                }
+                let isPickerDisabled = renderable.forEachModifier { ($0 as? DisabledModifier)?.disabled } ?? false
+                picker.RenderInlineMenuItems(context: context, isEnabled: isEnabled && !isPickerDisabled, replaceMenu: replaceMenu)
+                if !isLast {
+                    Divider().Compose(context: context)
+                    endsWithDivider = true
+                }
             } else {
                 // Dividers are also supported... maybe other view types?
                 renderable.Render(context: context)
+                endsWithDivider = stripped is Divider
             }
+            previousEndsWithDivider = endsWithDivider
         }
+    }
+
+    /// Whether a picker in a menu shows its options inline: only with the automatic picker style, set on the picker or
+    /// inherited. A picker with an explicit style keeps rendering as its own control.
+    @Composable private static func isInlineMenuPicker(_ renderable: Renderable) -> Bool {
+        let style = renderable.forEachModifier { ($0 as? PickerStyleModifier)?.style } ?? EnvironmentValues.shared._pickerStyle ?? PickerStyle.automatic
+        return style == PickerStyle.automatic
     }
 
     /// Walks `renderable`'s modifier chain and composes the `Modifier`
@@ -232,7 +270,7 @@ public final class Menu : View, Renderable {
         return modifier
     }
 
-    @Composable private static func RenderDropdownMenuItem(for view: ComposeBuilder, context: ComposeContext, modifier: Modifier = Modifier, tintColor: Color? = nil, isSelected: Bool? = nil, action: () -> Void) {
+    @Composable private static func RenderDropdownMenuItem(for view: ComposeBuilder, context: ComposeContext, modifier: Modifier = Modifier, tintColor: Color? = nil, isSelected: Bool? = nil, isEnabled: Bool = true, action: () -> Void) {
         let renderables = view.Evaluate(context: context, options: 0)
         let label = renderables.firstOrNull()?.strip() as? Label
         if let isSelected {
@@ -243,7 +281,7 @@ public final class Menu : View, Renderable {
                 selectedIcon = {}
             }
             if let label {
-                DropdownMenuItem(text: { label.RenderTitle(context: context, titleColor: tintColor) }, leadingIcon: selectedIcon, trailingIcon: { label.RenderImage(context: context, imageColor: tintColor) }, onClick: action, modifier: modifier)
+                DropdownMenuItem(text: { label.RenderTitle(context: context, titleColor: tintColor) }, leadingIcon: selectedIcon, trailingIcon: { label.RenderImage(context: context, imageColor: tintColor) }, onClick: action, modifier: modifier, enabled: isEnabled)
             } else {
                 DropdownMenuItem(text: {
                     EnvironmentValues.shared.setValues{
@@ -254,11 +292,11 @@ public final class Menu : View, Renderable {
                             renderable.Render(context: context)
                         }
                     }
-                }, leadingIcon: selectedIcon, onClick: action, modifier: modifier)
+                }, leadingIcon: selectedIcon, onClick: action, modifier: modifier, enabled: isEnabled)
             }
         } else {
             if let label {
-                DropdownMenuItem(text: { label.RenderTitle(context: context, titleColor: tintColor) }, trailingIcon: { label.RenderImage(context: context, imageColor: tintColor) }, onClick: action, modifier: modifier)
+                DropdownMenuItem(text: { label.RenderTitle(context: context, titleColor: tintColor) }, trailingIcon: { label.RenderImage(context: context, imageColor: tintColor) }, onClick: action, modifier: modifier, enabled: isEnabled)
             } else {
                 DropdownMenuItem(text: {
                     EnvironmentValues.shared.setValues {
@@ -269,7 +307,7 @@ public final class Menu : View, Renderable {
                             renderable.Render(context: context)
                         }
                     }
-                }, onClick: action, modifier: modifier)
+                }, onClick: action, modifier: modifier, enabled: isEnabled)
             }
         }
     }
