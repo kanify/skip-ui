@@ -1536,7 +1536,7 @@ extension View {
 /// This is its own composable so that the states it reads (the measured bounds and size, and the safe area through
 /// the environment) invalidate only this small scope. When the reads were in the modifier's own scope, every scroll
 /// frame and every safe area change recomposed the entire modified view.
-@Composable private func GeometryChangeObserver<T>(globalFramePx: MutableState<Rect?>, sizePx: MutableState<IntSize>, previousValue: MutableState<Any?>, transform: (GeometryProxy) -> T, action: (_ oldValue: T, _ newValue: T) -> Void) {
+@Composable func GeometryChangeObserver<T>(globalFramePx: MutableState<Rect?>, sizePx: MutableState<IntSize>, previousValue: MutableState<Any?>, transform: (GeometryProxy) -> T, action: (_ oldValue: T, _ newValue: T) -> Void) {
     guard let rect = globalFramePx.value else {
         return
     }
