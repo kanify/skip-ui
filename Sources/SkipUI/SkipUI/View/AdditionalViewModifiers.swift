@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1012,18 +1013,9 @@ extension View {
             let globalFramePx = remember { mutableStateOf<Rect?>(nil) }
             let sizePx = remember { mutableStateOf(IntSize.Zero) }
             let previousValue = remember { mutableStateOf(nil as Any?) }
-            let density = LocalDensity.current
-
-            if let rect = globalFramePx.value {
-                let proxy = GeometryProxy(globalFramePx: rect, sizePx: sizePx.value, density: density, safeArea: EnvironmentValues.shared._safeArea)
-                let newValue = transform(proxy)
-                let oldValue = previousValue.value as? T
-                if oldValue == nil || oldValue != newValue {
-                    let effectiveOldValue = oldValue ?? newValue
-                    previousValue.value = newValue
-                    SideEffect { action(effectiveOldValue, newValue) }
-                }
-            }
+            // Read the geometry and the safe area in a separate scope, so that a position, size or safe area change
+            // recomposes only the observer and not the modified view
+            GeometryChangeObserver(globalFramePx: globalFramePx, sizePx: sizePx, previousValue: previousValue, transform: transform, action: action)
 
             var updatedContext = context
             updatedContext.modifier = context.modifier.onGloballyPositionedInRootWithSize { rect, size in
@@ -1539,6 +1531,25 @@ extension View {
 }
 
 #if SKIP
+/// Evaluates an `onGeometryChange` transform and calls its action when the value changes.
+///
+/// This is its own composable so that the states it reads (the measured bounds and size, and the safe area through
+/// the environment) invalidate only this small scope. When the reads were in the modifier's own scope, every scroll
+/// frame and every safe area change recomposed the entire modified view.
+@Composable private func GeometryChangeObserver<T>(globalFramePx: MutableState<Rect?>, sizePx: MutableState<IntSize>, previousValue: MutableState<Any?>, transform: (GeometryProxy) -> T, action: (_ oldValue: T, _ newValue: T) -> Void) {
+    guard let rect = globalFramePx.value else {
+        return
+    }
+    let proxy = GeometryProxy(globalFramePx: rect, sizePx: sizePx.value, density: LocalDensity.current, safeArea: EnvironmentValues.shared._safeArea)
+    let newValue = transform(proxy)
+    let oldValue = previousValue.value as? T
+    if oldValue == nil || oldValue != newValue {
+        let effectiveOldValue = oldValue ?? newValue
+        previousValue.value = newValue
+        SideEffect { action(effectiveOldValue, newValue) }
+    }
+}
+
 extension Modifier {
     /// Log layout constraints for debugging purposes.
     ///

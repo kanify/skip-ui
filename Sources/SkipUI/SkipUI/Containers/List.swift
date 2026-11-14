@@ -152,12 +152,10 @@ public final class List : View, Renderable {
         let styling = ListStyling(style: style, backgroundVisibility: backgroundVisibility)
         let itemContext = context.content()
 
-        // When we layout, extend into safe areas that are due to system bars, not into any app chrome
-        let safeArea = EnvironmentValues.shared._safeArea
-        var ignoresSafeAreaEdges: Edge.Set = [.top, .bottom]
-        ignoresSafeAreaEdges.formIntersection(safeArea?.absoluteSystemBarEdges ?? [])
+        // When we layout, extend into safe areas that are due to system bars, not into any app chrome. The layout reads
+        // the safe area itself, so a safe area change does not recompose this whole list
         ComposeContainer(scrollAxes: .vertical, modifier: context.modifier, fillWidth: true, fillHeight: true, then: Modifier.background(BackgroundColor(styling: styling, isItem: false))) { modifier in
-            IgnoresSafeAreaLayout(expandInto: ignoresSafeAreaEdges, checkEdges: [.bottom], modifier: modifier, logTag: "List") { safeAreaExpansion, safeAreaEdges in
+            IgnoresSafeAreaLayout(expandInto: [.top, .bottom], checkEdges: [.bottom], expandIntoSystemBarsOnly: true, modifier: modifier, logTag: "List") { safeAreaExpansion, safeAreaEdges in
                 var containerModifier: Modifier
                 let refreshing = remember { mutableStateOf(false) }
                 let refreshAction = EnvironmentValues.shared.refresh

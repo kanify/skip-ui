@@ -160,7 +160,7 @@ private func flexibleLayoutFloat(_ value: CGFloat?) -> Float? {
 ///     passed to the given closure.
 /// - Parameter bottomAdjacencyTolerancePx: Distance from the bottom safe boundary still considered adjacent.
 /// - Parameter logTag: When non-empty, emits Android ``Log`` lines with tag `SkipUI.ISAL.<logTag>` (e.g. filter logcat `SkipUI.ISAL.List`).
-@Composable func IgnoresSafeAreaLayout(expandInto: Edge.Set, checkEdges: Edge.Set = [], modifier: Modifier = Modifier, bottomAdjacencyTolerancePx: Float = Float(0.1), logTag: String = "", target: @Composable (IntRect, Edge.Set) -> Void) {
+@Composable func IgnoresSafeAreaLayout(expandInto: Edge.Set, checkEdges: Edge.Set = [], expandIntoSystemBarsOnly: Bool = false, modifier: Modifier = Modifier, bottomAdjacencyTolerancePx: Float = Float(0.1), logTag: String = "", target: @Composable (IntRect, Edge.Set) -> Void) {
     guard let safeArea = EnvironmentValues.shared._safeArea else {
         if !logTag.isEmpty {
             Log.d("SkipUI.ISAL.\(logTag)", "no SafeArea in environment; skipping expansion")
@@ -169,6 +169,10 @@ private func flexibleLayoutFloat(_ value: CGFloat?) -> Float? {
         return
     }
 
+    // With `expandIntoSystemBarsOnly`, expand only into edges whose safe area is due solely to system bars. Callers
+    // used to read the safe area themselves to compute this, which made their whole body (for example a List's rows)
+    // recompose on every safe area change; reading it here confines that to this function
+    let effectiveExpandInto = expandIntoSystemBarsOnly ? expandInto.intersection(safeArea.absoluteSystemBarEdges) : expandInto
     let effectiveBottomAdjacencyTolerancePx = max(
         bottomAdjacencyTolerancePx,
         safeArea.presentationBoundsPx.bottom - safeArea.safeBoundsPx.bottom
@@ -186,28 +190,28 @@ private func flexibleLayoutFloat(_ value: CGFloat?) -> Float? {
     let edgesState = remember { mutableStateOf(checkEdges) }
     let edges = edgesState.value
     var expansionTop = 0
-    if expandInto.contains(Edge.Set.top) && edges.contains(Edge.Set.top) {
+    if effectiveExpandInto.contains(Edge.Set.top) && edges.contains(Edge.Set.top) {
         expansionTop = Int(safeArea.safeBoundsPx.top - safeArea.presentationBoundsPx.top)
     }
     var expansionBottom = 0
-    if expandInto.contains(Edge.Set.bottom) && edges.contains(Edge.Set.bottom) {
+    if effectiveExpandInto.contains(Edge.Set.bottom) && edges.contains(Edge.Set.bottom) {
         expansionBottom = Int(safeArea.presentationBoundsPx.bottom - safeArea.safeBoundsPx.bottom)
     }
     var expansionLeft = 0
     var expansionRight = 0
     let isRTL = LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     if isRTL {
-        if expandInto.contains(Edge.Set.leading) && edges.contains(Edge.Set.leading) {
+        if effectiveExpandInto.contains(Edge.Set.leading) && edges.contains(Edge.Set.leading) {
             expansionRight = Int(safeArea.presentationBoundsPx.right - safeArea.safeBoundsPx.right)
         }
-        if expandInto.contains(Edge.Set.trailing) && edges.contains(Edge.Set.trailing) {
+        if effectiveExpandInto.contains(Edge.Set.trailing) && edges.contains(Edge.Set.trailing) {
             expansionLeft = Int(safeArea.safeBoundsPx.left - safeArea.presentationBoundsPx.left)
         }
     } else {
-        if expandInto.contains(Edge.Set.leading) && edges.contains(Edge.Set.leading) {
+        if effectiveExpandInto.contains(Edge.Set.leading) && edges.contains(Edge.Set.leading) {
             expansionLeft = Int(safeArea.safeBoundsPx.left - safeArea.presentationBoundsPx.left)
         }
-        if expandInto.contains(Edge.Set.trailing) && edges.contains(Edge.Set.trailing) {
+        if effectiveExpandInto.contains(Edge.Set.trailing) && edges.contains(Edge.Set.trailing) {
             expansionRight = Int(safeArea.presentationBoundsPx.right - safeArea.safeBoundsPx.right)
         }
     }
@@ -225,7 +229,7 @@ private func flexibleLayoutFloat(_ value: CGFloat?) -> Float? {
         return ComposeResult.ok
     } in: {
         Layout(modifier: modifier.onGloballyPositionedInWindow {
-            let probeEdges = expandInto.union(checkEdges)
+            let probeEdges = effectiveExpandInto.union(checkEdges)
             let newEdges = adjacentSafeAreaEdges(bounds: $0, safeArea: safeArea, isRTL: isRTL, checkEdges: probeEdges, bottomTolerancePx: effectiveBottomAdjacencyTolerancePx)
             if !logTag.isEmpty {
                 let previous = edgesState.value
@@ -236,7 +240,11 @@ private func flexibleLayoutFloat(_ value: CGFloat?) -> Float? {
             edgesState.value = newEdges
         }, content: {
             let expansion = IntRect(top: expansionTop, left: expansionLeft, bottom: expansionBottom, right: expansionRight)
-            target(expansion, edges.intersection(checkEdges))
+            // Pass the same Edge.Set instance while the edges are unchanged. Edge.Set is a mutable struct, so Compose
+            // compares it by identity: a new instance on every pass meant `target` (often a whole scroll view's or
+            // list's content) recomposed on every safe area change even when its arguments were equal. The value is
+            // passed inline rather than through a local so that it is not copied
+            target(expansion, remember(edges.intersection(checkEdges).rawValue) { edges.intersection(checkEdges) })
         }) { measurables, constraints in
             guard !measurables.isEmpty() else {
                 return layout(width: 0, height: 0) {}
