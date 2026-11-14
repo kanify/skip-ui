@@ -10,12 +10,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeightIn
 import androidx.compose.foundation.layout.requiredWidthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -127,9 +132,19 @@ extension Modifier {
     }
 
     /// Invoke the given closure with the modified view's root bounds.
+    ///
+    /// Inside a sliding or dragged sheet, the bounds are reported at the sheet's settled position.
+    /// See `LocalPresentationTranslation`.
     @Composable func onGloballyPositionedInRoot(perform: (Rect) -> Void) -> Modifier {
+        let translation = LocalPresentationTranslation.current
         return self.onGloballyPositioned {
-            let bounds = $0.boundsInRoot()
+            var bounds = $0.boundsInRoot()
+            if let translation, bounds != Rect.Zero {
+                let translationPx = translation.currentPx()
+                if translationPx != Float(0.0) {
+                    bounds = Rect(left: bounds.left, top: bounds.top - translationPx, right: bounds.right, bottom: bounds.bottom - translationPx)
+                }
+            }
             if bounds != Rect.Zero {
                 perform(bounds)
             }
@@ -137,9 +152,14 @@ extension Modifier {
     }
 
     /// Invoke the given closure with the modified view's window bounds.
+    ///
+    /// Inside a sliding or dragged sheet, the bounds are reported at the sheet's settled position.
+    /// See `LocalPresentationTranslation`.
     @Composable func onGloballyPositionedInWindow(perform: (Rect) -> Void) -> Modifier {
+        let translation = LocalPresentationTranslation.current
         return self.onGloballyPositioned {
-            let bounds = $0.boundsInWindow()
+            let translationPx = translation?.currentPx() ?? Float(0.0)
+            let bounds = translationPx == Float(0.0) ? $0.boundsInWindow() : settledBoundsInWindow(of: $0, translationPx: translationPx)
             if bounds != Rect.Zero {
                 perform(bounds)
             }
@@ -159,6 +179,46 @@ extension Modifier {
         }
         return self.nestedScroll(nestedScrollConnection)
     }
+}
+
+/// Supplies how far, in px, the presentation that contains a view is currently placed below its settled
+/// position, for example while a sheet slides open or closed or is dragged.
+///
+/// Material3 moves a sheet by its layout placement, so without this every position-keyed state inside the
+/// sheet (the presentation bounds, bar positions, geometry readers) changed and recomposed on every frame of
+/// the slide. `onGloballyPositionedInRoot` and `onGloballyPositionedInWindow` subtract this translation, so
+/// they report the same settled bounds for the whole slide and equal values write no state. `currentPx` is
+/// read only inside the positioned callbacks, never during composition.
+final class PresentationTranslation {
+    let currentPx: () -> Float
+
+    init(currentPx: @escaping () -> Float) {
+        self.currentPx = currentPx
+    }
+}
+
+/// The translation of the enclosing sheet, or nil outside a sheet.
+let LocalPresentationTranslation: ProvidableCompositionLocal<PresentationTranslation?> = compositionLocalOf { nil as PresentationTranslation? }
+
+/// The window bounds the given layout would have if its presentation were moved up by `translationPx`.
+///
+/// Matches `boundsInWindow()`: the translation is removed from the root bounds *before* they are clamped to
+/// the root, because a sheet that is still sliding in extends past the bottom of its window.
+private func settledBoundsInWindow(of coordinates: LayoutCoordinates, translationPx: Float) -> Rect {
+    let root = coordinates.findRootCoordinates()
+    let rootWidth = Float(root.size.width)
+    let rootHeight = Float(root.size.height)
+    let bounds = coordinates.boundsInRoot()
+    let left = max(Float(0.0), min(bounds.left, rootWidth))
+    let top = max(Float(0.0), min(bounds.top - translationPx, rootHeight))
+    let right = max(Float(0.0), min(bounds.right, rootWidth))
+    let bottom = max(Float(0.0), min(bounds.bottom - translationPx, rootHeight))
+    if left == right || top == bottom {
+        return Rect.Zero
+    }
+    let topLeft = root.localToWindow(Offset(x: left, y: top))
+    let bottomRight = root.localToWindow(Offset(x: right, y: bottom))
+    return Rect(left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y)
 }
 
 extension PaddingValues {

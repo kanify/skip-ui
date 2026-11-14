@@ -34,6 +34,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
+import androidx.compose.material3.SheetState
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
@@ -192,18 +194,24 @@ private let AlertDialogMaxWidth: Dp = 560.dp
                 // Place outside of PresentationRoot recomposes
                 let stateSaver = remember { ComposeStateSaver() }
                 let presentationContext = context.content(stateSaver: stateSaver)
-                // Place inside of ModalBottomSheet, which renders content async
-                PresentationRoot(context: presentationContext, absoluteSystemBarEdges: systemBarEdges) { context in
-                    EnvironmentValues.shared.setValues {
-                        if !isFullScreen {
-                            $0.set_sheetDepth(sheetDepth + 1)
-                        }
-                        $0.setdismiss(DismissAction(action: { isPresented.set(false) }))
-                        return ComposeResult.ok
-                    } in: {
-                        PreferenceValues.shared.collectPreferences([interactiveDismissDisabledCollector, detentPreferencesCollector, dragIndicatorPreferencesCollector]) {
-                            for renderable in contentRenderables {
-                                renderable.Render(context: context)
+                // Report positions inside the sheet at its settled place while it slides or is dragged, so the
+                // position-keyed state below does not recompose the content on every frame of the motion
+                let presentationTranslation = remember(sheetState) { PresentationTranslation(currentPx: { sheetTranslationPx(sheetState) }) }
+                // SKIP INSERT: val providedPresentationTranslation = LocalPresentationTranslation provides presentationTranslation
+                CompositionLocalProvider(providedPresentationTranslation) {
+                    // Place inside of ModalBottomSheet, which renders content async
+                    PresentationRoot(context: presentationContext, absoluteSystemBarEdges: systemBarEdges) { context in
+                        EnvironmentValues.shared.setValues {
+                            if !isFullScreen {
+                                $0.set_sheetDepth(sheetDepth + 1)
+                            }
+                            $0.setdismiss(DismissAction(action: { isPresented.set(false) }))
+                            return ComposeResult.ok
+                        } in: {
+                            PreferenceValues.shared.collectPreferences([interactiveDismissDisabledCollector, detentPreferencesCollector, dragIndicatorPreferencesCollector]) {
+                                for renderable in contentRenderables {
+                                    renderable.Render(context: context)
+                                }
                             }
                         }
                     }
@@ -233,6 +241,18 @@ private let AlertDialogMaxWidth: Dp = 560.dp
             }
         }
     }
+}
+
+/// How far, in whole px, the sheet is currently placed below its expanded position.
+///
+/// The sheet surface is as tall as its window (the content box takes `weight(1)`), so its expanded offset is 0
+/// and the offset is exactly the slide or drag translation. Material3 places the surface at
+/// `requireOffset().roundToInt()`, so the same rounding is applied here and the translation cancels exactly.
+/// `requireOffset()` throws before the sheet's first layout; that reads as no translation.
+// SKIP INSERT: @OptIn(ExperimentalMaterial3Api::class)
+private func sheetTranslationPx(_ sheetState: SheetState) -> Float {
+    let offset = runCatching { sheetState.requireOffset() }.getOrDefault(Float(0.0))
+    return offset.isNaN() ? Float(0.0) : Float(offset.roundToInt())
 }
 
 @Composable private func SyncSystemBarsWithTheme() {
