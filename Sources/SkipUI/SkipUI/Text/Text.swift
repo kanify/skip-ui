@@ -506,7 +506,8 @@ struct _Text: View, Renderable, Equatable {
                     case .middle:
                         return singleLine ? TextOverflow.MiddleEllipsis : TextOverflow.Ellipsis
                     default:
-                        return TextOverflow.Clip
+                        // SwiftUI truncates at the tail when no truncation mode is set
+                        return TextOverflow.Ellipsis
                     }
                 }()
             )
