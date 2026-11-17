@@ -10,6 +10,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -82,9 +83,15 @@ public struct ZStack : View, Renderable {
     }
 
     @Composable private func RenderAnimatedContent(context: ComposeContext, modifier: Modifier, arguments: AnimatedContentArguments) {
+        // SwiftUI resizes a stack at once unless an animation is in effect. Read the ambient
+        // animation here, in composition, and let the size spec below see the latest value.
+        let animatesSize = rememberUpdatedState(Animation.current(isAnimating: false) != nil)
         AnimatedContent(modifier: modifier, targetState: arguments.renderables, transitionSpec: {
             EnterTransition.None.togetherWith(ExitTransition.None).using(SizeTransform(clip: false) { initialSize, targetSize in
-                 if initialSize.width <= 0 || initialSize.height <= 0 {
+                 if !animatesSize.value {
+                     // No animation in effect: take the new size immediately, as SwiftUI does
+                     snap()
+                 } else if initialSize.width <= 0 || initialSize.height <= 0 {
                      // When starting at zero size, immediately go to target size so views animate into proper place
                      snap()
                  } else if targetSize.width > initialSize.width || targetSize.height > initialSize.height {
